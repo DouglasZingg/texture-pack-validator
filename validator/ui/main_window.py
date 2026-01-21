@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from validator.core.grouping import AssetGroup, TextureRecord, build_groups
+from validator.core.required_maps import ValidationResult, count_levels, validate_required_maps
 
 SUPPORTED_EXTS = {".png", ".tif", ".tiff", ".jpg", ".jpeg", ".exr"}
 
@@ -46,11 +47,12 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Texture Pack Validator")
-        self.resize(1100, 650)
+        self.resize(1100, 700)
 
         self._root: Optional[Path] = None
         self._groups: dict[str, AssetGroup] = {}
         self._unparsed: list[TextureRecord] = []
+        self._results_by_asset: dict[str, list[ValidationResult]] = {}
 
         # --- Top controls
         self.folder_label = QLabel("Texture Export Folder:")
@@ -69,12 +71,18 @@ class MainWindow(QMainWindow):
         self.asset_list = QListWidget()
         self.asset_list.setSelectionMode(QAbstractItemView.SingleSelection)
 
-        # --- Right: details for selected asset + parse issues
+        # --- Right: details for selected asset + parse issues + results
         self.asset_header = QLabel("Select an asset to see its maps.")
         self.asset_header.setTextInteractionFlags(Qt.TextSelectableByMouse)
 
         self.map_list = QListWidget()
         self.map_list.setSelectionMode(QAbstractItemView.NoSelection)
+
+        self.results_header = QLabel("Validation results:")
+        self.results_header.setTextInteractionFlags(Qt.TextSelectableByMouse)
+
+        self.results_list = QListWidget()
+        self.results_list.setSelectionMode(QAbstractItemView.NoSelection)
 
         self.parse_header = QLabel("Unparsed / naming issues:")
         self.parse_header.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -86,10 +94,16 @@ class MainWindow(QMainWindow):
         right_panel = QWidget()
         right_layout = QVBoxLayout()
         right_layout.addWidget(self.asset_header)
+
         right_layout.addWidget(QLabel("Maps (by type):"))
-        right_layout.addWidget(self.map_list, 1)
+        right_layout.addWidget(self.map_list, 2)
+
+        right_layout.addWidget(self.results_header)
+        right_layout.addWidget(self.results_list, 2)
+
         right_layout.addWidget(self.parse_header)
         right_layout.addWidget(self.unparsed_list, 1)
+
         right_panel.setLayout(right_layout)
 
         splitter = QSplitter(Qt.Horizontal)
@@ -141,6 +155,7 @@ class MainWindow(QMainWindow):
 
         self.asset_list.clear()
         self.map_list.clear()
+        self.results_list.clear()
         self.unparsed_list.clear()
         self.asset_header.setText("Select an asset to see its maps.")
 
@@ -148,12 +163,25 @@ class MainWindow(QMainWindow):
 
         self._groups, self._unparsed = build_groups(files, self._root)
 
-        # Populate asset list
+        # Build validation results per asset (Day 3)
+        self._results_by_asset = {}
+        for name, group in self._groups.items():
+            self._results_by_asset[name] = validate_required_maps(group)
+
+        # Populate asset list with counts
         asset_names = sorted(self._groups.keys(), key=lambda s: s.lower())
+        total_errors = total_warnings = 0
+
         for name in asset_names:
             g = self._groups[name]
             maps = ", ".join(g.map_types()) if g.map_types() else "No parsed maps"
-            item = QListWidgetItem(f"{name}    [{maps}]")
+
+            res = self._results_by_asset.get(name, [])
+            e, w, _ = count_levels(res)
+            total_errors += e
+            total_warnings += w
+
+            item = QListWidgetItem(f"{name}    [{maps}]    (E:{e} W:{w})")
             item.setData(Qt.UserRole, name)
             self.asset_list.addItem(item)
 
@@ -165,10 +193,12 @@ class MainWindow(QMainWindow):
         self.summary_label.setText(
             f"Assets found: {len(self._groups)} | "
             f"Textures scanned: {len(files)} | "
-            f"Naming issues: {len(self._unparsed)}"
+            f"Naming issues: {len(self._unparsed)} | "
+            f"Errors: {total_errors} | Warnings: {total_warnings}"
         )
+
         self.statusBar().showMessage(
-            f"Scan complete: {len(self._groups)} assets, {len(self._unparsed)} naming issues.",
+            f"Scan complete: {len(self._groups)} assets, {total_errors} errors.",
             5000,
         )
 
@@ -178,6 +208,7 @@ class MainWindow(QMainWindow):
 
     def on_asset_selected(self, current: Optional[QListWidgetItem], previous: Optional[QListWidgetItem]) -> None:
         self.map_list.clear()
+        self.results_list.clear()
 
         if not current:
             self.asset_header.setText("Select an asset to see its maps.")
@@ -189,7 +220,7 @@ class MainWindow(QMainWindow):
             self.asset_header.setText("Select an asset to see its maps.")
             return
 
-        # Build a map-type -> list of files display
+        # Build map-type -> list of files display
         by_type: dict[str, list[str]] = {}
         for rec in group.textures:
             if not rec.parsed:
@@ -204,3 +235,8 @@ class MainWindow(QMainWindow):
                 child = QListWidgetItem(f"  - {rel}")
                 child.setFlags(child.flags() & ~Qt.ItemIsSelectable)
                 self.map_list.addItem(child)
+
+        # Show validation results (Day 3)
+        results = self._results_by_asset.get(asset_name, [])
+        for r in results:
+            self.results_list.addItem(QListWidgetItem(f"{r.level}: {r.message}"))
