@@ -160,3 +160,20 @@ def write_html_report(report: dict, output_path: Path) -> None:
 </html>
 """
     output_path.write_text(html, encoding="utf-8")
+
+def write_batch_json_report(batch_report: dict, output_path: Path) -> None:
+    output_path.write_text(json.dumps(batch_report, indent=2), encoding="utf-8")
+
+
+def build_batch_report_dict(
+    tool_version: str,
+    profile: str,
+    folder_summaries: list[dict],
+) -> dict:
+    return {
+        "tool": "Texture Pack Validator",
+        "version": tool_version,
+        "timestamp": iso_now(),
+        "profile": profile,
+        "folders": folder_summaries,
+    }
