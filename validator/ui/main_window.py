@@ -19,12 +19,16 @@ from PySide6.QtWidgets import (
     QStatusBar,
     QVBoxLayout,
     QWidget,
+    QCheckBox
+
 )
 
 from validator.core.grouping import AssetGroup, TextureRecord, build_groups
 from validator.core.required_maps import ValidationResult, count_levels, validate_required_maps
 from validator.core.image_metadata import validate_image_metadata
 from validator.core.orm_validation import validate_orm_maps
+from PySide6.QtWidgets import QCheckBox
+from validator.core.autofix import apply_renames, plan_renames
 
 SUPPORTED_EXTS = {".png", ".tif", ".tiff", ".jpg", ".jpeg", ".exr"}
 
@@ -66,6 +70,9 @@ class MainWindow(QMainWindow):
         self.scan_btn = QPushButton("Scan")
         self.scan_btn.setEnabled(False)
 
+        self.autofix_checkbox = QCheckBox("Auto-fix naming")
+        self.autofix_checkbox.setChecked(False)
+
         self.summary_label = QLabel("No folder selected.")
         self.summary_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
 
@@ -92,6 +99,10 @@ class MainWindow(QMainWindow):
         self.unparsed_list = QListWidget()
         self.unparsed_list.setSelectionMode(QAbstractItemView.NoSelection)
 
+        self.fix_header = QLabel("Auto-fix log:")
+        self.fix_log_list = QListWidget()
+        self.fix_log_list.setSelectionMode(QAbstractItemView.NoSelection)
+
         # --- Splitter layout
         right_panel = QWidget()
         right_layout = QVBoxLayout()
@@ -107,7 +118,10 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self.unparsed_list, 1)
 
         right_panel.setLayout(right_layout)
-
+        
+        right_layout.addWidget(self.fix_header)
+        right_layout.addWidget(self.fix_log_list, 1)
+        
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(self.asset_list)
         splitter.addWidget(right_panel)
@@ -120,6 +134,7 @@ class MainWindow(QMainWindow):
         top_row.addWidget(self.folder_edit, 1)
         top_row.addWidget(self.pick_btn)
         top_row.addWidget(self.scan_btn)
+        top_row.addWidget(self.autofix_checkbox)
 
         main_layout = QVBoxLayout()
         main_layout.addLayout(top_row)
@@ -159,11 +174,33 @@ class MainWindow(QMainWindow):
         self.map_list.clear()
         self.results_list.clear()
         self.unparsed_list.clear()
+        self.fix_log_list.clear()
         self.asset_header.setText("Select an asset to see its maps.")
 
         files = list(iter_texture_files(self._root))
 
         self._groups, self._unparsed = build_groups(files, self._root)
+
+        # Day 6: optional auto-fix rename
+        if self.autofix_checkbox.isChecked():
+            all_actions = []
+            for g in self._groups.values():
+                all_actions.extend(plan_renames(g))
+
+            applied, errors = apply_renames(all_actions)
+
+            for a in applied:
+                self.fix_log_list.addItem(QListWidgetItem(f"Renamed: {a.src.name} -> {a.dst.name} ({a.note})"))
+
+            for err in errors:
+                self.fix_log_list.addItem(QListWidgetItem(f"ERROR: {err}"))
+
+            # Re-scan after renames so UI reflects new filenames/groups
+            files = list(iter_texture_files(self._root))
+            self._groups, self._unparsed = build_groups(files, self._root)
+
+        else:
+            self.fix_log_list.addItem(QListWidgetItem("Auto-fix disabled."))
 
         # Build validation results per asset (Day 3)
         self._results_by_asset = {}
