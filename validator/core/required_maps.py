@@ -4,60 +4,60 @@ from dataclasses import dataclass
 from typing import Iterable, List, Set
 
 from validator.core.grouping import AssetGroup
-
+from validator.profiles import Profile
 
 @dataclass(frozen=True)
 class ValidationResult:
     level: str  # "INFO" | "WARNING" | "ERROR"
     message: str
 
-
 def _present_map_types(group: AssetGroup) -> Set[str]:
     return {rec.parsed.map_type for rec in group.textures if rec.parsed}
 
-
-def validate_required_maps(group: AssetGroup) -> List[ValidationResult]:
-    """
-    Day 3 rules (v1):
-      - BaseColor required
-      - Normal required
-      - Roughness/Metallic/AO required OR ORM present (packed)
-    """
+def validate_required_maps(group: AssetGroup, profile: Profile) -> List[ValidationResult]:
     results: List[ValidationResult] = []
     present = _present_map_types(group)
 
-    # Base requirements
+    # Base requirements (keep strict)
     if "BaseColor" not in present:
         results.append(ValidationResult("ERROR", "Missing required map: BaseColor"))
     if "Normal" not in present:
         results.append(ValidationResult("ERROR", "Missing required map: Normal"))
 
-    # Packed workflow
+    # If profile requires ORM (Unreal)
+    if profile.require_orm:
+        if "ORM" in present:
+            results.append(ValidationResult("INFO", "ORM present (AO/Roughness/Metallic packed)"))
+        else:
+            results.append(ValidationResult("ERROR", "Missing required packed map: ORM (Unreal profile)"))
+        return results if results else [ValidationResult("INFO", "All required maps present.")]
+
+    # Unity/VFX: ORM satisfies the AO/Rough/Metal requirement
     if "ORM" in present:
         results.append(ValidationResult("INFO", "ORM present (AO/Roughness/Metallic packed)"))
-    else:
-        # Separate workflow requirements
-        missing = []
-        if "AmbientOcclusion" not in present:
-            missing.append("AmbientOcclusion")
-        if "Roughness" not in present:
-            missing.append("Roughness")
-        if "Metallic" not in present:
-            missing.append("Metallic")
+        return results if results else [ValidationResult("INFO", "All required maps present.")]
 
-        if missing:
-            results.append(
-                ValidationResult(
-                    "ERROR",
-                    "Missing required map(s): " + ", ".join(missing) + " (or provide ORM)",
-                )
+    # Unity/VFX: no ORM -> require separate AO/Rough/Metallic
+    missing = []
+    if "AmbientOcclusion" not in present:
+        missing.append("AmbientOcclusion")
+    if "Roughness" not in present:
+        missing.append("Roughness")
+    if "Metallic" not in present:
+        missing.append("Metallic")
+
+    if missing:
+        results.append(
+            ValidationResult(
+                "ERROR",
+                "Missing required map(s): " + ", ".join(missing) + " (or provide ORM)",
             )
+        )
 
     if not results:
         results.append(ValidationResult("INFO", "All required maps present."))
 
     return results
-
 
 def count_levels(results: Iterable[ValidationResult]) -> tuple[int, int, int]:
     """Returns (errors, warnings, infos)."""

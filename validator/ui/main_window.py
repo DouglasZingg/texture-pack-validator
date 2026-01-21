@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 from pathlib import Path
@@ -7,6 +8,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -34,6 +36,7 @@ from validator.core.reporting import (
     write_json_report,
 )
 from validator.core.required_maps import ValidationResult, count_levels, validate_required_maps
+from validator.profiles import PROFILES, Profile
 
 
 def iter_texture_files(root: Path) -> Iterable[Path]:
@@ -45,21 +48,42 @@ def iter_texture_files(root: Path) -> Iterable[Path]:
         yield p
 
 
+def profile_summary_text(p: Profile) -> str:
+    lines = [
+        f"Profile: {p.name}",
+        "",
+        "Rules:",
+        "- BaseColor + Normal required",
+    ]
+    if p.require_orm:
+        lines.append("- ORM required (packed AO/Roughness/Metallic)")
+        lines.append("- Separate AO/Roughness/Metallic do NOT satisfy by themselves")
+    else:
+        lines.append("- AO/Roughness/Metallic required OR ORM present")
+    if p.allow_exr:
+        lines.append("- EXR allowed in metadata checks")
+    else:
+        lines.append("- EXR not expected (warnings/errors may appear)")
+    return "\n".join(lines)
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Texture Pack Validator")
-        self.resize(1200, 720)
+        self.resize(1250, 760)
 
         self._root: Optional[Path] = None
         self._groups: dict[str, AssetGroup] = {}
         self._unparsed: list[TextureRecord] = []
-        self._results_by_asset: dict[str, list[ValidationResult]] = []
+        self._results_by_asset: dict[str, list[ValidationResult]] = {}
 
         # Reporting / metadata
         self._autofix_log_lines: list[str] = []
-        self._profile_name: str = "Default"
         self._tool_version: str = "1.0.0"
+
+        # Profiles
+        self._profile: Profile = PROFILES[0]
 
         # --- Top controls
         self.folder_label = QLabel("Texture Export Folder:")
@@ -73,6 +97,10 @@ class MainWindow(QMainWindow):
 
         self.autofix_checkbox = QCheckBox("Auto-fix naming")
         self.autofix_checkbox.setChecked(False)
+
+        self.profile_combo = QComboBox()
+        self.profile_combo.addItems([p.name for p in PROFILES])
+        self.profile_combo.setCurrentIndex(0)
 
         self.export_json_btn = QPushButton("Export JSON")
         self.export_html_btn = QPushButton("Export HTML")
@@ -89,6 +117,14 @@ class MainWindow(QMainWindow):
         # --- Right: details
         self.asset_header = QLabel("Select an asset to see its maps.")
         self.asset_header.setTextInteractionFlags(Qt.TextSelectableByMouse)
+
+        self.profile_header = QLabel("Profile rules:")
+        self.profile_header.setTextInteractionFlags(Qt.TextSelectableByMouse)
+
+        self.profile_rules = QLabel(profile_summary_text(self._profile))
+        self.profile_rules.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.profile_rules.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self.profile_rules.setStyleSheet("QLabel { padding: 6px; border: 1px solid #aaa; }")
 
         self.map_list = QListWidget()
         self.map_list.setSelectionMode(QAbstractItemView.NoSelection)
@@ -115,6 +151,10 @@ class MainWindow(QMainWindow):
         right_panel = QWidget()
         right_layout = QVBoxLayout()
         right_layout.addWidget(self.asset_header)
+
+        # Day 8.5: profile summary panel
+        right_layout.addWidget(self.profile_header)
+        right_layout.addWidget(self.profile_rules)
 
         right_layout.addWidget(QLabel("Maps (by type):"))
         right_layout.addWidget(self.map_list, 2)
@@ -143,6 +183,8 @@ class MainWindow(QMainWindow):
         top_row.addWidget(self.pick_btn)
         top_row.addWidget(self.scan_btn)
         top_row.addWidget(self.autofix_checkbox)
+        top_row.addWidget(QLabel("Profile:"))
+        top_row.addWidget(self.profile_combo)
         top_row.addWidget(self.export_json_btn)
         top_row.addWidget(self.export_html_btn)
 
@@ -163,6 +205,45 @@ class MainWindow(QMainWindow):
         self.asset_list.currentItemChanged.connect(self.on_asset_selected)
         self.export_json_btn.clicked.connect(self.on_export_json)
         self.export_html_btn.clicked.connect(self.on_export_html)
+        self.profile_combo.currentIndexChanged.connect(self.on_profile_changed)
+
+    # ----------------------------
+    # Profile
+    # ----------------------------
+    def on_profile_changed(self, idx: int) -> None:
+        idx = max(0, min(idx, len(PROFILES) - 1))
+        self._profile = PROFILES[idx]
+        self.profile_rules.setText(profile_summary_text(self._profile))
+        self.statusBar().showMessage(f"Profile set: {self._profile.name}", 2500)
+
+        # Optional convenience: if user already scanned, re-run validations only
+        # (keeps things responsive without redoing IO/renames)
+        if self._groups:
+            self._recompute_validations()
+            # refresh current asset view
+            cur = self.asset_list.currentItem()
+            self.on_asset_selected(cur, None)
+
+    def _recompute_validations(self) -> None:
+        self._results_by_asset = {}
+        for name, group in self._groups.items():
+            results: list[ValidationResult] = []
+            results.extend(validate_required_maps(group, self._profile))   # Day 8
+            results.extend(validate_image_metadata(group, self._profile))  # Day 8
+            results.extend(validate_orm_maps(group))                       # Day 5
+            self._results_by_asset[name] = results
+
+        # Update asset list labels with new counts
+        for i in range(self.asset_list.count()):
+            item = self.asset_list.item(i)
+            asset_name = item.data(Qt.UserRole)
+            g = self._groups.get(asset_name)
+            if not g:
+                continue
+            maps = ", ".join(g.map_types()) if g.map_types() else "No parsed maps"
+            res = self._results_by_asset.get(asset_name, [])
+            e, w, _ = count_levels(res)
+            item.setText(f"{asset_name}    [{maps}]    (E:{e} W:{w})")
 
     # ----------------------------
     # UI Actions
@@ -228,16 +309,10 @@ class MainWindow(QMainWindow):
             self.fix_log_list.addItem(QListWidgetItem(line))
             self._autofix_log_lines.append(line)
 
-        # Build validation results per asset (Days 3-5)
-        self._results_by_asset = {}
-        for name, group in self._groups.items():
-            results: list[ValidationResult] = []
-            results.extend(validate_required_maps(group))     # Day 3
-            results.extend(validate_image_metadata(group))    # Day 4
-            results.extend(validate_orm_maps(group))          # Day 5
-            self._results_by_asset[name] = results
+        # Compute validations with current profile
+        self._recompute_validations()
 
-        # Populate asset list with counts
+        # Populate asset list
         asset_names = sorted(self._groups.keys(), key=lambda s: s.lower())
         total_errors = 0
         total_warnings = 0
@@ -261,6 +336,7 @@ class MainWindow(QMainWindow):
             self.unparsed_list.addItem(QListWidgetItem(f"{rec.rel_path} - {msg}"))
 
         self.summary_label.setText(
+            f"Profile: {self._profile.name} | "
             f"Assets found: {len(self._groups)} | "
             f"Textures scanned: {len(files)} | "
             f"Naming issues: {len(self._unparsed)} | "
@@ -268,7 +344,7 @@ class MainWindow(QMainWindow):
         )
 
         self.statusBar().showMessage(
-            f"Scan complete: {len(self._groups)} assets, {total_errors} errors.",
+            f"Scan complete ({self._profile.name}): {len(self._groups)} assets, {total_errors} errors.",
             5000,
         )
 
@@ -314,7 +390,7 @@ class MainWindow(QMainWindow):
                 child.setFlags(child.flags() & ~Qt.ItemIsSelectable)
                 self.map_list.addItem(child)
 
-        # Show validation results (Days 3-5)
+        # Show validation results
         results = self._results_by_asset.get(asset_name, [])
         if not results:
             self.results_list.addItem(QListWidgetItem("INFO: No results."))
@@ -331,7 +407,7 @@ class MainWindow(QMainWindow):
 
         return build_report_dict(
             tool_version=self._tool_version,
-            profile=self._profile_name,
+            profile=self._profile.name,
             groups=self._groups,
             results_by_asset=self._results_by_asset,
             unparsed=self._unparsed,
@@ -341,7 +417,6 @@ class MainWindow(QMainWindow):
     def on_export_json(self) -> None:
         if not self._root:
             return
-
         try:
             reports_dir = ensure_reports_dir(self._root)
             out_path = reports_dir / "report.json"
@@ -356,7 +431,6 @@ class MainWindow(QMainWindow):
     def on_export_html(self) -> None:
         if not self._root:
             return
-
         try:
             reports_dir = ensure_reports_dir(self._root)
             out_path = reports_dir / "report.html"

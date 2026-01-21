@@ -65,21 +65,25 @@ class ParsedName:
     version: Optional[int]
     raw_map_token: str
 
-
 def canonicalize_map_token(token: str) -> Optional[str]:
     t = token.strip().lower()
     if not t:
         return None
+
+    # Strip common suffix noise: "roughness (1)", "roughness_copy", "roughness-final"
+    t = re.sub(r"\s*\(\d+\)\s*$", "", t)         # trailing (1)
+    t = re.sub(r"[-\s]*(copy|final|export)\s*$", "", t)  # trailing copy/final/export
+    t = t.replace(" ", "")  # allow "ambient occlusion"
+
     canon = ALIASES.get(t)
     if canon:
         return canon
-    # If user already uses canonical spelling
-    # (case-insensitive)
+
     for m in CANON_MAPS:
         if t == m.lower():
             return m
-    return None
 
+    return None
 
 def parse_texture_filename(stem: str) -> Tuple[Optional[ParsedName], Optional[str]]:
     """
