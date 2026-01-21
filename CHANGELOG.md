@@ -1,0 +1,11 @@
+## v1.0.0
+- Standalone PySide6 UI for scanning texture export folders
+- Filename parsing + asset grouping with map type detection
+- Required map validation with severity results
+- Pillow-based image metadata checks (resolution/channel/format)
+- ORM packed validation (RGB requirement + channel sanity)
+- Optional auto-fix rename mode (collision-safe)
+- JSON + HTML report exporting
+- Profiles: Unreal/Unity/VFX (profile-aware validation + EXR allowance)
+- Batch scanning with optional watch mode
+- Optional batch rename mode with explicit toggle
