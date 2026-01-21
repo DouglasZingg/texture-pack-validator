@@ -1,0 +1,87 @@
+{
+  "tool": "Texture Pack Validator",
+  "version": "1.0.0",
+  "timestamp": "2026-01-21T13:39:45-05:00",
+  "profile": "Default",
+  "assets": [
+    {
+      "name": "CrateA",
+      "maps": [
+        "BaseColor",
+        "Normal",
+        "ORM"
+      ],
+      "results": [
+        {
+          "level": "INFO",
+          "message": "ORM present (AO/Roughness/Metallic packed)"
+        },
+        {
+          "level": "WARNING",
+          "message": "BaseColor: not power-of-two (3840x2160)"
+        },
+        {
+          "level": "WARNING",
+          "message": "Normal: not power-of-two (3840x2160)"
+        },
+        {
+          "level": "WARNING",
+          "message": "Normal: has alpha channel (unexpected)"
+        },
+        {
+          "level": "WARNING",
+          "message": "ORM: not power-of-two (3840x2160)"
+        },
+        {
+          "level": "WARNING",
+          "message": "ORM: has alpha channel (unexpected)"
+        },
+        {
+          "level": "WARNING",
+          "message": "ORM: CrateA_ORM.tif - has alpha channel (unexpected)"
+        },
+        {
+          "level": "WARNING",
+          "message": "ORM: CrateA_ORM.tif - channels look identical (may be grayscale, not packed)"
+        }
+      ]
+    },
+    {
+      "name": "CrateA_Body",
+      "maps": [
+        "Roughness"
+      ],
+      "results": [
+        {
+          "level": "ERROR",
+          "message": "Missing required map: BaseColor"
+        },
+        {
+          "level": "ERROR",
+          "message": "Missing required map: Normal"
+        },
+        {
+          "level": "ERROR",
+          "message": "Missing required map(s): AmbientOcclusion, Metallic (or provide ORM)"
+        },
+        {
+          "level": "WARNING",
+          "message": "Roughness: not power-of-two (3840x2160)"
+        }
+      ]
+    }
+  ],
+  "naming_issues": [
+    {
+      "file": "CrateA.png",
+      "error": "No '_' separator found (expected Asset_MapType[_v###])."
+    },
+    {
+      "file": "CrateA_Specular.png",
+      "error": "Unknown map type token 'Specular'."
+    }
+  ],
+  "autofix_log": [
+    "Renamed: CrateA_ORM_v003.tif -> CrateA_ORM.tif (rename)"
+  ]
+}
