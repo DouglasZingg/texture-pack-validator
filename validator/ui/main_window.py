@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 from validator.core.grouping import AssetGroup, TextureRecord, build_groups
 from validator.core.required_maps import ValidationResult, count_levels, validate_required_maps
 from validator.core.image_metadata import validate_image_metadata
-
+from validator.core.orm_validation import validate_orm_maps
 
 SUPPORTED_EXTS = {".png", ".tif", ".tiff", ".jpg", ".jpeg", ".exr"}
 
@@ -169,9 +169,11 @@ class MainWindow(QMainWindow):
         self._results_by_asset = {}
         for name, group in self._groups.items():
             results = []
-            results.extend(validate_required_maps(group))
-            results.extend(validate_image_metadata(group))
+            results.extend(validate_required_maps(group))     # Day 3
+            results.extend(validate_image_metadata(group))    # Day 4
+            results.extend(validate_orm_maps(group))          # Day 5
             self._results_by_asset[name] = results
+
 
         # Populate asset list with counts
         asset_names = sorted(self._groups.keys(), key=lambda s: s.lower())
