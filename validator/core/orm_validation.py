@@ -25,7 +25,7 @@ def _channel_extrema(img: Image.Image) -> tuple[tuple[int, int], tuple[int, int]
 
 def validate_orm_maps(group: AssetGroup) -> List[ValidationResult]:
     """
-    Day 5 ORM checks (lightweight):
+    Day 5 ORM checks :
       - must be readable
       - must have >= 3 channels (RGB)
       - warn if alpha present
